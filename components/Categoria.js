@@ -4,16 +4,8 @@ import { Ionicons } from "@expo/vector-icons";
 const Categoria = (props) => {
   return (
     <TouchableOpacity style={styles.contenedor} onPress={props.onPress}>
-
-      <Ionicons 
-        name={props.icono} 
-        size={28} 
-        color="#7C7CFF" 
-        />
-
-      <Text style={styles.nombre}>
-        {props.nombre}</Text>
-        
+      <Ionicons name={props.icono} size={28} color="#7C7CFF" />
+      <Text style={styles.nombre}>{props.nombre}</Text>
     </TouchableOpacity>
   );
 };
@@ -30,4 +22,5 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
 });
+
 export default Categoria;

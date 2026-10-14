@@ -1,5 +1,16 @@
 import { useCallback, useState } from "react";
-import {ActivityIndicator,Alert,FlatList,Image,Pressable,RefreshControl,StyleSheet,Text,View,} from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Image,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
@@ -8,14 +19,34 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  query,
+  where,
 } from "firebase/firestore";
 import { db } from "../firebase/config";
+import Categoria from "../components/Categoria";
 
 const VistaAdmin = ({ navigation }) => {
   const [productos, setProductos] = useState([]);
+  const [categorias, setCategorias] = useState([]);
+  const [busqueda, setBusqueda] = useState("");
+  const [categoriaSeleccionada, setCategoriaSeleccionada] = useState("todos");
   const [cargando, setCargando] = useState(true);
   const [actualizando, setActualizando] = useState(false);
   const [error, setError] = useState("");
+
+  const cargarCategorias = useCallback(async () => {
+    try {
+      const resultado = await getDocs(collection(db, "categorias"));
+      setCategorias(
+        resultado.docs.map((categoria) => {
+          const data = categoria.data();
+          return { ...data, id: data.id ?? categoria.id };
+        })
+      );
+    } catch (e) {
+      console.error("Error cargando categorías en administración:", e);
+    }
+  }, []);
 
   const cargarProductos = useCallback(async (actualizar = false) => {
     if (actualizar) {
@@ -31,8 +62,9 @@ const VistaAdmin = ({ navigation }) => {
         resultado.docs.map((producto) => ({
           id: producto.id,
           ...producto.data(),
-        })),
+        }))
       );
+      setCategoriaSeleccionada("todos");
     } catch (e) {
       console.error("Error cargando productos para administración:", e);
       setError("No fue posible cargar los productos. Intenta nuevamente.");
@@ -42,15 +74,61 @@ const VistaAdmin = ({ navigation }) => {
     }
   }, []);
 
+  const consultarPorCategoria = async (categoriaId) => {
+    setCargando(true);
+    setError("");
+    try {
+      const consulta = query(
+        collection(db, "Productos"),
+        where("categoriaId", "==", categoriaId)
+      );
+      const resultado = await getDocs(consulta);
+      let datos = resultado.docs.map((producto) => ({
+        id: producto.id,
+        ...producto.data(),
+      }));
+
+      if (datos.length === 0) {
+        const consultaAlt = query(
+          collection(db, "Productos"),
+          where("idCategoria", "==", categoriaId)
+        );
+        const resultadoAlt = await getDocs(consultaAlt);
+        datos = resultadoAlt.docs.map((producto) => ({
+          id: producto.id,
+          ...producto.data(),
+        }));
+      }
+
+      setProductos(datos);
+    } catch (e) {
+      console.error("Error filtrando productos por categoría:", e);
+      setError("No fue posible filtrar por categoría.");
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  const manejarCategoria = (categoriaId) => {
+    setCategoriaSeleccionada(categoriaId);
+    if (categoriaId === "todos") {
+      cargarProductos();
+      return;
+    }
+    consultarPorCategoria(categoriaId);
+  };
+
   useFocusEffect(
     useCallback(() => {
+      cargarCategorias();
       cargarProductos();
-    }, [cargarProductos]),
+    }, [cargarCategorias, cargarProductos])
   );
 
   const eliminarProducto = (producto) => {
     Alert.alert(
-      "Eliminar producto",`¿Deseas eliminar "${producto.nombre || "este producto"}"?'`,
+      "Eliminar producto",
+      `¿Deseas eliminar "${producto.nombre || "este producto"}"?`,
       [
         { text: "Cancelar", style: "cancel" },
         {
@@ -60,20 +138,24 @@ const VistaAdmin = ({ navigation }) => {
             try {
               await deleteDoc(doc(db, "Productos", producto.id));
               setProductos((actuales) =>
-                actuales.filter((actual) => actual.id !== producto.id),
+                actuales.filter((actual) => actual.id !== producto.id)
               );
             } catch (e) {
               console.error("Error eliminando producto:", e);
               Alert.alert(
                 "No se pudo eliminar",
-                "Ocurrió un error al eliminar el producto. Intenta nuevamente.",
+                "Ocurrió un error al eliminar el producto. Intenta nuevamente."
               );
             }
           },
         },
-      ],
+      ]
     );
   };
+
+  const productosFiltrados = productos.filter((producto) =>
+    (producto.nombre || "").toLowerCase().includes(busqueda.toLowerCase())
+  );
 
   const renderProducto = ({ item }) => (
     <View style={styles.tarjeta}>
@@ -95,7 +177,7 @@ const VistaAdmin = ({ navigation }) => {
             accessibilityLabel={`Editar ${item.nombre || "producto"}`}
             style={styles.botonEditar}
             onPress={() =>
-              navigation.navigate("FormularioProducto", { productId: item.id })
+              navigation.navigate("FormularioAdd", { productId: item.id })
             }
           >
             <Ionicons name="create-outline" size={17} color="#5546D7" />
@@ -124,12 +206,38 @@ const VistaAdmin = ({ navigation }) => {
         <Pressable
           accessibilityRole="button"
           style={styles.botonAgregar}
-          onPress={() => navigation.navigate("FormularioProducto")}
+          onPress={() => navigation.navigate("FormularioAdd")}
         >
           <Ionicons name="add" size={21} color="#FFFFFF" />
           <Text style={styles.textoAgregar}>Agregar</Text>
         </Pressable>
       </View>
+
+      <View style={styles.buscador}>
+        <Ionicons name="search-outline" size={18} color="#7C7CFF" />
+        <TextInput
+          placeholder="Buscar producto"
+          placeholderTextColor="#B5B5D5"
+          style={styles.input}
+          value={busqueda}
+          onChangeText={setBusqueda}
+        />
+      </View>
+
+      <FlatList
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.categorias}
+        data={[{ id: "todos", nombre: "Todos", icono: "apps-outline" }, ...categorias]}
+        keyExtractor={(item) => String(item.id)}
+        renderItem={({ item }) => (
+          <Categoria
+            nombre={item.nombre}
+            icono={item.icono}
+            onPress={() => manejarCategoria(item.id)}
+          />
+        )}
+      />
 
       {error ? (
         <Pressable
@@ -145,12 +253,12 @@ const VistaAdmin = ({ navigation }) => {
         <ActivityIndicator style={styles.cargando} color="#5546D7" size="large" />
       ) : (
         <FlatList
-          data={productos}
+          data={productosFiltrados}
           keyExtractor={(item) => item.id}
           renderItem={renderProducto}
           contentContainerStyle={[
             styles.lista,
-            productos.length === 0 && styles.listaVacia,
+            productosFiltrados.length === 0 && styles.listaVacia,
           ]}
           refreshControl={
             <RefreshControl
@@ -164,7 +272,7 @@ const VistaAdmin = ({ navigation }) => {
               <Ionicons name="cube-outline" size={42} color="#AAA9C2" />
               <Text style={styles.vacioTitulo}>Aún no hay productos</Text>
               <Text style={styles.vacioDetalle}>
-                Agrega el primer producto para mostrarlo en el catálogo.
+                Agrega el primer producto o cambia la categoría / búsqueda.
               </Text>
             </View>
           }
@@ -179,7 +287,7 @@ const styles = StyleSheet.create({
   encabezado: {
     paddingHorizontal: 20,
     paddingTop: 14,
-    paddingBottom: 20,
+    paddingBottom: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -201,6 +309,27 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   textoAgregar: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  buscador: {
+    height: 52,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    marginHorizontal: 16,
+    marginBottom: 10,
+  },
+  input: {
+    flex: 1,
+    fontSize: 14,
+    marginLeft: 8,
+    color: "#1F1F1F",
+  },
+  categorias: {
+    maxHeight: 78,
+    marginBottom: 8,
+    paddingHorizontal: 8,
+  },
   lista: { paddingHorizontal: 16, paddingBottom: 20 },
   listaVacia: { flexGrow: 1 },
   tarjeta: {
